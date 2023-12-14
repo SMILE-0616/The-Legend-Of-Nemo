@@ -2,72 +2,70 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
+//근접공격
 public class Weapon : MonoBehaviour
 {
-    public enum Type { Melee, Range };
-    public Type type;
-    public int damage;
-    public float rate;
-    public BoxCollider meleeArea;
-    public TrailRenderer trailEffect;
+    public enum Type { Melee, Range }; //근접공격, 원거리
+    public Type type; //무기 타입
+    public int damage; //데미지
+    public float rate; //공격속도
+    public BoxCollider meleeArea; //근접공격 범위
+    public TrailRenderer trailEffect; //휘두를때 효과
 
-    public Transform bulletPos;
-    public GameObject bullet;
+    //재장전
+    public int maxAmmo; //최대 탄창
+    public int curAmmo; //현재 남은 탄
+
+    //원거리
+    public Transform bulletPos; //생성위치
+    public GameObject bullet; //프리팹 저장
     public Transform bulletCasePos;
     public GameObject bulletCase;
 
-    public int maxAmmo;
-    public int curAmmo;
     public void Use()
     {
-        if (type == Type.Melee)
+        if(type == Type.Melee) //근접일때
         {
-            StopCoroutine("Swing");
             StartCoroutine("Swing");
         }
-
-        else if (type == Type.Range)
+        else if (type == Type.Range && curAmmo > 0) //원거리이면서 남은 탄이 있으면
         {
+            curAmmo--; //탄 소모
             StartCoroutine("Shot");
         }
     }
 
     IEnumerator Swing()
     {
-        // 중요한 개념인 코루틴
-        // 기존 : Use() 메인루틴 -> Swing() 서브루틴 -> Use() 메인루틴 (교차실행)
-        // 코루틴 : Use() 메인루틴 + Swing() 코루틴 Co - (동시실행)
-
-        // yield : 결과를 전달하는 키워드, 여러 개 사용해 시간차 로직 구현가능
-
-        //1
-        yield return new WaitForSeconds(0.1f); // 0.1 초 대기
+        //Trail Renderer 와 BoxCollider을 시간차로 활성화
+        yield return new WaitForSeconds(0.1f);
         meleeArea.enabled = true;
         trailEffect.enabled = true;
 
-        //2
-        yield return new WaitForSeconds(0.3f); // 0.3 초 대기
-        meleeArea.enabled = false;
+        //yield return new WaitForSeconds(0.3f);
+        //meleeArea.enabled = false;
 
-        //3
-        yield return new WaitForSeconds(0.3f); // 0.3 초 대기
+        yield return new WaitForSeconds(0.3f);
         trailEffect.enabled = false;
+
+        yield return new WaitForSeconds(0.1f);
+        meleeArea.enabled = false;
     }
 
     IEnumerator Shot()
     {
-        // 1. 총알 발사 , Instantiate() 함수로 총알 인스턴스화 하기
-        GameObject instantBullet = Instantiate(bullet, bulletPos.position, bulletPos.rotation);
-        Rigidbody bulletRigid = instantBullet.GetComponent<Rigidbody>();
-        bulletRigid.velocity = bulletPos.forward * 50;         // velocity 속력주기
+        //#1. 총알 발사
+        GameObject intantBullet = Instantiate(bullet, bulletPos.position, bulletPos.rotation);
+        ///총알에 속도 적용하기
+        Rigidbody bulletRigid = intantBullet.GetComponent<Rigidbody>();
+        bulletRigid.velocity = bulletPos.forward * 30; //나가는 방향이 z축이므로 forward
 
         yield return null;
-        // 2. 탄피 배출
-        GameObject instantCase = Instantiate(bulletCase, bulletCasePos.position, bulletCasePos.rotation);
-        Rigidbody caseRigid = instantCase.GetComponent<Rigidbody>();
-        Vector3 caseVec = bulletCasePos.forward * Random.Range(-3, -2) + Vector3.up * Random.Range(2, 3);
-        caseRigid.AddForce(caseVec, ForceMode.Impulse);
-
-        caseRigid.AddTorque(Vector3.up * 10, ForceMode.Impulse); // 탄피 회전
+        //#2. 탄피 배출
+        GameObject intantCase = Instantiate(bulletCase, bulletCasePos.position, bulletCasePos.rotation);
+        Rigidbody caseRigid = intantCase.GetComponent<Rigidbody>();
+        Vector3 caseVec = bulletCasePos.forward * Random.Range(-3, -2) + Vector3.up * Random.Range(2, 3); //z축의 반대방향, 튀기듯이 만듬
+        caseRigid.AddForce(caseVec, ForceMode.Impulse); //가하는 힘, 즉발
+        caseRigid.AddTorque(Vector3.up * 10, ForceMode.Impulse); //회전도 줌
     }
 }

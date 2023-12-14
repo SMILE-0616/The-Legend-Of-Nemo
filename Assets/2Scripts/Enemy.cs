@@ -1,46 +1,49 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI; // UI 요소를 조작하기 위해 추가
-using UnityEngine.AI; // AI 요소를 조작하기 위해 추가
+using UnityEngine.AI;
 
-/* Enemy script */
+[System.Serializable]
 public class Enemy : MonoBehaviour
 {
-    public int maxHealth;
-    public int curHealth;
+    public enum Type { A, B, C, D };
+    public Type enemyType; //타입을 집어넣을 곳
+    public int maxHealth; //체력
+    public int curHealth; //현재체력
+    public int score; //점수 동전
+    public GameManager manager;
+    public Transform target; //목표물
+    //공격범위
+    public BoxCollider meleeArea; //콜라이더를 담을 변수
+    public GameObject bullet;
+    public GameObject[] coins; //점수 동전
+    public bool isChase; //추적 결정
+    public bool isAttack; //공격 여부
+    public bool isDead;
 
-    public Transform target;
-    public bool isChase;
+    public Rigidbody rigid;
+    public BoxCollider boxCollider;
+    public MeshRenderer[] meshs;
+    public NavMeshAgent nav; //네비
 
+    public Animator anim;
 
-    Rigidbody rigid;
-    BoxCollider boxCollider;
-
-    Material mat;
-    NavMeshAgent nav;
-
-    Animator anim;
-
-    // Enemy의 이동 속도
-    public float moveSpeed = 1.0f;
-
-    // 적 처리된 수를 세는 변수
-    private static int enemiesDestroyed = 0;
-
-    // 승리 메시지를 표시할 UI Text 요소
-    public Text winText;
+    public float enemySpeed = 3.5f; // 필요에 따라 이 값을 조절하세요
 
     void Awake()
     {
         rigid = GetComponent<Rigidbody>();
         boxCollider = GetComponent<BoxCollider>();
-        mat = GetComponentInChildren<MeshRenderer>().material; 
-        // 자식의 전부를 가져와야 하므로 InChildren 추가
+        meshs = GetComponentsInChildren<MeshRenderer>();
         nav = GetComponent<NavMeshAgent>();
         anim = GetComponentInChildren<Animator>();
 
+        if (enemyType != Type.D) //Boss
+        {
         Invoke("ChaseStart", 2);
+        // 이곳에서 속도를 설정합니다
+        nav.speed = enemySpeed;
+        }
     }
 
     void ChaseStart()
@@ -51,98 +54,212 @@ public class Enemy : MonoBehaviour
 
     void Update()
     {
-        if(isChase)
+        if(nav.enabled && enemyType != Type.D)
+        {
             nav.SetDestination(target.position);
+            nav.isStopped = !isChase; //완벽 멈춤
+        }
     }
 
     void FreezeVelocity()
     {
-        if (isChase)
+        if(isChase)
         {
-            rigid.velocity = Vector3.zero;  // 속도
-            rigid.angularVelocity = Vector3.zero;   // 회전력
+            rigid.velocity = Vector3.zero;
+            rigid.angularVelocity = Vector3.zero;
         }
+    }
+
+    //타겟팅, 살아있을 때만
+    void Targeting()
+    {
+        if(!isDead && enemyType != Type.D)
+        {
+            float targetRadius = 1.5f;
+            float targetRange = 3f;
+
+            switch (enemyType)
+            {
+                case Type.A:
+                    targetRadius = 1.5f;
+                    targetRange = 3f;
+                    break;
+                case Type.B:
+                    targetRadius = 1f;
+                    targetRange = 12f;
+                    break;
+                case Type.C:
+                    targetRadius = 0.5f;
+                    targetRange = 25f;
+                    break;
+            }
+
+            RaycastHit[] rayHits = Physics.SphereCastAll(transform.position,
+                                                        targetRadius,
+                                                        transform.forward,
+                                                        targetRange,
+                                                        LayerMask.GetMask("Player"));
+            if (rayHits.Length > 0 && !isAttack)
+            {
+                //변수에 데이터가 들어오면 공격 코루틴 실행
+                StartCoroutine(Attack());
+            }
+        }
+    }
+
+    IEnumerator Attack()
+    {
+        isChase = false;
+        isAttack = true;
+        anim.SetBool("isAttack", true);
+
+        switch(enemyType)
+        {
+            case Type.A:
+                yield return new WaitForSeconds(0.2f);
+                meleeArea.enabled = true;
+
+                yield return new WaitForSeconds(1f);
+                meleeArea.enabled = false;
+
+                yield return new WaitForSeconds(1f);
+                break;
+            case Type.B:
+                //선 딜레이
+                yield return new WaitForSeconds(0.1f);
+                //돌격
+                rigid.AddForce(transform.forward * 6, ForceMode.Impulse);
+                meleeArea.enabled = true;
+
+                //멈춤
+                yield return new WaitForSeconds(0.5f);
+                rigid.velocity = Vector3.zero;
+                meleeArea.enabled = false;
+
+                //쉼
+                yield return new WaitForSeconds(2f);
+                break;
+            case Type.C:
+                yield return new WaitForSeconds(0.5f);
+                GameObject instantBullet = Instantiate(bullet, transform.position, transform.rotation);
+                Rigidbody rigidBullet = instantBullet.GetComponent<Rigidbody>();
+                rigidBullet.velocity = transform.forward * 20;
+
+                yield return new WaitForSeconds(2f);
+                break;
+        }
+
+        isChase = true;
+        isAttack = false;
+        anim.SetBool("isAttack", false);
     }
 
     void FixedUpdate()
     {
+        Targeting();
         FreezeVelocity();
     }
 
     void OnTriggerEnter(Collider other)
     {
-        if (other.tag == "Melee")
+        if(other.tag == "Melee")
         {
+            //충돌
             Weapon weapon = other.GetComponent<Weapon>();
             curHealth -= weapon.damage;
+            //curHealth -= weapon.damage;
+            //넉백, 현재 위치에 피격 위치 빼서 반작용 방향 구하기
             Vector3 reactVec = transform.position - other.transform.position;
-
             StartCoroutine(OnDamage(reactVec, false));
-
-            Debug.Log("Collision detected with: " + other.tag);
         }
-        else if (other.tag == "Bullet")
+        else if(other.tag == "Bullet")
         {
+            //총알정보
             Bullet bullet = other.GetComponent<Bullet>();
             curHealth -= bullet.damage;
             Vector3 reactVec = transform.position - other.transform.position;
 
+            //총알정보 받고 없애서 통과모션 없애기
+            Destroy(other.gameObject);
+
             StartCoroutine(OnDamage(reactVec, false));
-
-            Debug.Log("Collision detected with: " + other.tag);
-        }
-
-        // 적을 처치한 경우
-        if (curHealth <= 0)
-        {
-            Destroy(gameObject);
-            enemiesDestroyed++;
-
-            // 모든 적이 처리되었는지 확인
-            if (enemiesDestroyed >= 2)
-            {
-                // 모든 적이 처리되었다면 승리 메시지 표시
-                print("Game Win");
-            }
         }
     }
 
+    public void HitByGrenade(Vector3 explosionPos)
+    {
+        curHealth -= 100;
+        Vector3 reactVec = transform.position - explosionPos;
+        StartCoroutine(OnDamage(reactVec, true));
+    }
+
+    //피격
     IEnumerator OnDamage(Vector3 reactVec, bool isGrenade)
     {
-        mat.color = Color.red;
+        foreach (MeshRenderer mesh in meshs)
+            mesh.material.color = Color.red;
+
         yield return new WaitForSeconds(0.1f);
 
-        if (curHealth > 0)
+        if (curHealth > 0 && !isDead) //아직 죽기전
         {
-            mat.color = Color.white;
+            Debug.Log("죽기 전 " + manager.enemyCntA);
+            yield return new WaitForSeconds(0.2f);
+            foreach (MeshRenderer mesh in meshs)
+                mesh.material.color = Color.white;
         }
-        else
+        else //죽음
         {
-            mat.color = Color.gray;
-            gameObject.layer = 12;
-            isChase = false;
+            Debug.Log("죽음 " + manager.enemyCntA);
+            isDead = true;
+            foreach (MeshRenderer mesh in meshs)
+                mesh.material.color = Color.gray;
+
+            gameObject.layer = 14; //레이어 번호 그대로 써도 됨
+            //isDead = true;
+            isChase = false; //추적 중지
             nav.enabled = false;
-            anim.SetTrigger("doDie");
+            anim.SetTrigger("doDie"); //애니메이션
 
+            //점수 부여
+            Player player = target.GetComponent<Player>();
+            player.score += score;
+            int ranCoin = Random.Range(0, 3);
+            Instantiate(coins[ranCoin], transform.position, Quaternion.identity);
 
-            // 죽었을 시, 넉백
+            switch (enemyType)
+            {
+                case Type.A:
+                    manager.enemyCntA--;
+                    break;
+                case Type.B:
+                    manager.enemyCntB--;
+                    break;
+                case Type.C:
+                    manager.enemyCntC--;
+                    break;
+                case Type.D:
+                    manager.enemyCntD--;
+                    break;
+            }
 
-            if (isGrenade)
+            if(isGrenade)
             {
                 reactVec = reactVec.normalized;
-                reactVec += Vector3.up * 3;
+                reactVec += Vector3.up * 3; //위로 힘이 가해짐
 
-                rigid.freezeRotation = false; // freezeRotation
-                rigid.AddForce(reactVec * 5, ForceMode.Impulse);
+                rigid.freezeRotation = false; //체크 풀림
+                rigid.AddForce(reactVec * 5, ForceMode.Impulse); //넉백 힘 5
                 rigid.AddTorque(reactVec * 15, ForceMode.Impulse);
             }
             else
             {
                 reactVec = reactVec.normalized;
-                reactVec += Vector3.up;
-                rigid.AddForce(reactVec * 5, ForceMode.Impulse);
+                reactVec += Vector3.up; //위로 힘이 가해짐
+                rigid.AddForce(reactVec * 5, ForceMode.Impulse); //넉백 힘 5
             }
-            Destroy(gameObject, 4);
+
+            Destroy(gameObject, 4); //사라짐
         }
     }
 }
